@@ -1,0 +1,130 @@
+import socket
+from threading import start_new_thread
+from time import sleep
+import pickle
+
+port_of_pros=[] # port number of each process
+n=len(port_of_pros)
+myID = 0
+unsuccessful = 'false' # a unsuccessful flag which denotes if a process is failed or not
+
+socket_1 =  socket.socket()
+socket_2 = socket.socket()
+
+socket_2.bind(('0.0.0.0',port_of_pros[myID]))
+socket_2.listen(2)
+
+while(1):
+	try:
+		import socket
+		host = 'localhost'
+		port = 5000
+# create a socket at server side
+# using TCP / IP protocol
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# bind the socket with server
+# and port number
+		s.bind(('', port))
+# allow maximum 1 connection to
+# the socket
+		s.listen(1)
+# wait till a client accept
+# connection
+		c, addr = s.accept()
+# display client address
+		print("CONNECTION FROM:", str(addr))
+# send message to the client after
+# encoding into binary string
+		c.send(b"Working")
+		msg = "Ok"
+		c.send(msg.encode())
+# disconnect the server
+		c.close()	
+	except:
+		break
+
+while True:
+	try:
+		socket_1.connect(('localhost', port_of_pros[(myID+1)%n])) # trying to connect to the first process.
+	except:
+		print("Waiting for connection...") # if it fails we are waiting for the connection to the process.
+		sleep(1) # the socket will be sleeping until it happens.
+		continue
+	
+	break
+socket_1.send('handshake') 
+print(socket_1)
+
+print('hello')
+
+failData = socket_1.recv(1024) # recv function is used to recieve data from both TCP and UDP sockets of size 1024 bytes
+
+Initiator_Flag = False	# a flag to tell if the current node is the one conducting the election
+
+def client_thread(c):
+	global socket_1, failData, Initiator_Flag
+	try:
+		while True:
+			recieved_Data = c.recv(1024)
+			if recieved_Data == 'handshake':
+				print('handshake received')
+				c.send(unsuccessful)
+
+			if recieved_Data == 'false' or failData=='false':
+				print('unsuccessful status of process')+str((myID+1)%n) + ' : ' + str(failData)
+				failData = ''
+			elif recieved_Data == 'true' or failData=='true':
+				failData = ''
+				socket_1.close()
+				socket_1=socket.socket()
+				print('Initiating Election')
+				socket_1.connect(('localhost',port_of_pros[(myID+2)%n]))
+				lst=[myID]
+				lst=pickle.dumps(lst)
+				socket_1.send('election')
+				sleep(2)
+				socket_1.send(lst)
+				print("sent")
+			elif recieved_Data == 'election':
+				if not Initiator_Flag:
+					print("hello")
+					recieved_Data = c.recv(1024)
+					print('election list received')
+					data2 = pickle.loads(recieved_Data)
+					print(data2)
+					if myID in data2:
+						Initiator_Flag = True
+
+					if not Initiator_Flag:
+						data2.append(myID)
+						recieved_Data = pickle.dumps(data2)
+						socket_1.send('election')
+						sleep(1)
+						socket_1.send(recieved_Data)
+					elif Initiator_Flag:
+						print("election recieved_Data received")
+						print(data2)
+						coordinator=max(data2)
+						print('Process ' + str(coordinator) + ' is the coordinator')
+						socket_1.send('leader')
+						sleep(1)
+						socket_1.send(str(coordinator))	
+			elif recieved_Data == 'leader' and not Initiator_Flag:
+				recieved_Data = c.recv(1024)
+				print('Process ' + recieved_Data + ' is the coordinator')
+				socket_1.send('leader')
+				sleep(1)
+				socket_1.send(str(recieved_Data))
+			elif recieved_Data == 'leader' and Initiator_Flag:
+				Initiator_Flag=False
+	except KeyboardInterrupt:	
+		#close the sockets in case of a keyboard interrupt
+		c.close()	
+		socket_1.close()	
+		socket_2.close()
+		print("sockets are closed ...")
+
+while True:
+	c,addr=socket_2.accept()
+	start_new_thread(client_thread,(c,))
+
